@@ -118,6 +118,9 @@ cp .env.example .env               # Fill in your API keys
 
 ---
 
+![My SVG Icon](./ticketflow_diagram.svg)
+
+
 ## Demo
 
 > Coming in Week 15 — Streamlit dashboard + screen recording
