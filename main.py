@@ -37,6 +37,7 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from db_client import TicketflowDB
 from tasks import process_ticket, celery_app
+from mocks.zendesk import router as zendesk_mock_router
 
 # ─────────────────────────────────────────────
 # App instance
@@ -47,6 +48,10 @@ app = FastAPI(
     description="Support ticket management with AI agent routing",
     version="0.1.0",
 )
+
+# Mount mock Zendesk router (development only)
+# Remove or guard with ENV check in production
+app.include_router(zendesk_mock_router)
 
 # Single shared DB instance
 db = TicketflowDB()
@@ -93,7 +98,8 @@ class UpdateStatusRequest(BaseModel):
 
 class TicketResponse(BaseModel):
     """Returned after creating a ticket"""
-    ticket_number:  str
+    ticket_id:      str            # UUID — use this to reference the ticket in code
+    ticket_number:  str            # Human-readable e.g. TKT-2025-006
     title:          str
     category:       str
     priority:       str
@@ -188,6 +194,7 @@ def create_ticket(body: CreateTicketRequest):
     )
 
     return TicketResponse(
+        ticket_id=ticket["id"],
         ticket_number=ticket["ticket_number"],
         title=ticket["title"],
         category=ticket["category"],
@@ -216,10 +223,22 @@ def get_ticket(ticket_number: str):
     return ticket
 
 
-@app.get("/ticket/{id}/status", response_model=dict, tags=["Tickets"])
-def get_ticket_id_status(ticket_number: str):
+@app.get("/ticket/{ticket_number}/status", response_model=dict, tags=["Tickets"])
+def get_ticket_status(ticket_number: str):
     """
-    Fetch the status of the ticket by ticket number e.g TKT-2025-001
+    Lightweight status check for a ticket.
+    Returns only the fields needed to track progress —
+    faster than GET /ticket/{number} which fetches everything.
+
+    Response includes:
+        ticket_id      → UUID
+        ticket_number  → e.g. TKT-2025-006
+        status         → open | in_progress | waiting | resolved | closed
+        priority       → low | medium | high | urgent
+        assigned_to    → which agent is handling it (or null)
+        sla_due_at     → SLA deadline
+        sla_breached   → true if past due and not resolved
+        resolved_at    → timestamp if resolved, else null
     """
     ticket = db.get_ticket_by_number(ticket_number)
     if not ticket:
@@ -227,7 +246,7 @@ def get_ticket_id_status(ticket_number: str):
             status_code=404,
             detail=f"Ticket '{ticket_number}' not found."
         )
-    
+
     from datetime import datetime, timezone
     now         = datetime.now(timezone.utc)
     sla_due_at  = ticket.get("sla_due_at")
@@ -252,6 +271,7 @@ def get_ticket_id_status(ticket_number: str):
         "sla_breached":  sla_breached,
         "resolved_at":   ticket.get("resolved_at"),
     }
+
 
 @app.get("/tickets", response_model=dict, tags=["Tickets"])
 def list_open_tickets(

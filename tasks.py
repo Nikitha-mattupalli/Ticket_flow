@@ -23,8 +23,15 @@ from datetime import datetime, timezone
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "db"))
 
+import requests
 from celery import Celery
 from db_client import TicketflowDB
+
+# Swap this URL for real Zendesk in production:
+# ZENDESK_BASE_URL = 'https://{subdomain}.zendesk.com/api/v2'
+ZENDESK_BASE_URL = os.environ.get(
+    'ZENDESK_BASE_URL', 'http://localhost:8000/mock/zendesk'
+)
 
 # ─────────────────────────────────────────────
 # 1. Celery app
@@ -167,7 +174,41 @@ def process_ticket(self, ticket_id: str, ticket_number: str,
         )
 
 
-        # ── Stage 3: waiting ──────────────────────────────────────────
+        # ── Stage 3: sync to Zendesk ──────────────────────────────────
+        self.update_state(
+            state="STARTED",
+            meta={"step": "syncing_zendesk", "ticket": ticket_number}
+        )
+
+        zd_ticket_id = None
+        try:
+            zd_resp = requests.post(
+                f"{ZENDESK_BASE_URL}/ticket",
+                json={
+                    "subject":     ticket_number + " - " + category,
+                    "description": agent_response,
+                    "priority":    priority if priority in ('low','normal','high','urgent') else 'normal',
+                    "type":        "problem",
+                    "tags":        [category],
+                    "external_id": ticket_number,
+                },
+                timeout=10,
+            )
+            if zd_resp.status_code == 201:
+                zd_ticket_id = zd_resp.json()["ticket"]["id"]
+                db.add_note(
+                    ticket_id=ticket_id,
+                    author="system",
+                    body=f"Synced to Zendesk — ticket #{zd_ticket_id}",
+                    is_internal=True,
+                )
+                print(f"[{ticket_number}] synced to Zendesk #{zd_ticket_id}")
+            else:
+                print(f"[{ticket_number}] Zendesk sync failed: {zd_resp.status_code}")
+        except Exception as zd_err:
+            print(f"[{ticket_number}] Zendesk unreachable: {zd_err} — continuing")
+
+        # ── Stage 4: waiting ──────────────────────────────────────────
         # Agent has responded, waiting for customer or further action
         self.update_state(
             state="STARTED",
@@ -185,12 +226,13 @@ def process_ticket(self, ticket_id: str, ticket_number: str,
 
         # ── Done ──────────────────────────────────────────────────────
         result = {
-            "ticket_number": ticket_number,
-            "ticket_id":     ticket_id,
-            "agent":         agent,
-            "final_status":  "waiting",
-            "response":      agent_response,
-            "processed_at":  datetime.now(timezone.utc).isoformat(),
+            "ticket_number":   ticket_number,
+            "ticket_id":       ticket_id,
+            "agent":           agent,
+            "final_status":    "waiting",
+            "response":        agent_response,
+            "zendesk_id":      zd_ticket_id,
+            "processed_at":    datetime.now(timezone.utc).isoformat(),
         }
 
         print(f"[{ticket_number}] ✅ processing complete → waiting for customer")
