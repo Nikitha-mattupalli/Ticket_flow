@@ -1,25 +1,27 @@
 """
 Ticketflow — FastAPI App
 -------------------------
-REST API skeleton with /ticket POST endpoint.
+REST API with /ticket POST endpoint wired to Celery async task.
 
 Endpoints:
-    GET  /             → health check
-    GET  /customers    → list all customers
-    POST /ticket       → create a new ticket
-    GET  /ticket/{id}  → get ticket by number
-    PUT  /ticket/{id}/status → update ticket status
+    GET  /                         → health check
+    GET  /customers                → list all customers
+    POST /ticket                   → create ticket + queue background task
+    GET  /ticket/{number}          → get ticket by number
+    GET  /tickets                  → list open tickets
+    PUT  /ticket/{number}/status   → update ticket status
+    GET  /task/{task_id}           → check Celery task status
 
 Setup:
-    pip install fastapi uvicorn supabase python-dotenv
+    pip install fastapi uvicorn supabase celery redis python-dotenv
 
-Run:
-    uvicorn main:app --reload
-
-    --reload means the server restarts automatically when you save changes.
+Run (3 terminals):
+    Terminal 1:  docker start redis
+    Terminal 2:  celery -A tasks worker --loglevel=info --pool=solo
+    Terminal 3:  uvicorn main:app --reload
 
 Test:
-    Open http://127.0.0.1:8000/docs  ← auto-generated interactive API docs
+    Open http://127.0.0.1:8000/docs
 """
 
 from dotenv import load_dotenv
@@ -28,13 +30,13 @@ load_dotenv()
 import sys
 import os
 
-# Allow imports from db/ folder
 sys.path.append(os.path.join(os.path.dirname(__file__), "db"))
 
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from db_client import TicketflowDB
+from tasks import process_ticket, celery_app
 
 # ─────────────────────────────────────────────
 # App instance
@@ -90,16 +92,17 @@ class UpdateStatusRequest(BaseModel):
 
 
 class TicketResponse(BaseModel):
-    """Returned after creating or fetching a ticket"""
-    ticket_number: str
-    title:         str
-    category:      str
-    priority:      str
-    status:        str
-    sla_due_at:    Optional[str]
+    """Returned after creating a ticket"""
+    ticket_number:  str
+    title:          str
+    category:       str
+    priority:       str
+    status:         str
+    sla_due_at:     Optional[str]
     customer_email: Optional[str] = None
     order_number:   Optional[str] = None
     message:        Optional[str] = None
+    task_id:        Optional[str] = None   # Celery task ID for polling
 
 
 # ─────────────────────────────────────────────
@@ -122,16 +125,20 @@ def list_customers(tier: Optional[str] = None):
     return {"count": len(customers), "customers": customers}
 
 
-@app.post("/ticket", status_code=status.HTTP_201_CREATED,
+@app.post("/ticket", status_code=status.HTTP_202_ACCEPTED,
           response_model=TicketResponse, tags=["Tickets"])
 def create_ticket(body: CreateTicketRequest):
     """
-    Create a new support ticket.
+    Create a support ticket and queue it for async agent processing.
 
-    - Looks up the customer by email (must exist)
-    - Optionally links to an order by order_number
-    - Auto-generates ticket_number (TKT-XXXXX)
-    - sla_due_at is set automatically by the DB trigger
+    Flow:
+        1. Validate request
+        2. Save ticket to Supabase (status: open)
+        3. Fire Celery task → returns immediately with task_id
+        4. Worker picks up task → routes to agent → updates ticket in background
+
+    Returns 202 Accepted (not 201) — ticket exists but processing is async.
+    Poll GET /task/{task_id} to check processing status.
     """
 
     # 1. Look up customer
@@ -139,11 +146,10 @@ def create_ticket(body: CreateTicketRequest):
     if not customer:
         raise HTTPException(
             status_code=404,
-            detail=f"Customer with email '{body.customer_email}' not found. "
-                   "Create the customer first."
+            detail=f"Customer '{body.customer_email}' not found. Create the customer first."
         )
 
-    # 2. Optionally resolve order_number → order_id
+    # 2. Resolve optional order_number → order_id
     order_id = None
     if body.order_number:
         order = db.get_order_by_number(body.order_number)
@@ -159,10 +165,9 @@ def create_ticket(body: CreateTicketRequest):
             )
         order_id = order["id"]
 
-    # 3. Generate ticket number
+    # 3. Save ticket to DB (status: open)
     ticket_number = _generate_ticket_number()
 
-    # 4. Create ticket
     ticket = db.create_ticket(
         customer_id=customer["id"],
         ticket_number=ticket_number,
@@ -174,6 +179,14 @@ def create_ticket(body: CreateTicketRequest):
         tags=body.tags or [],
     )
 
+    # 4. Fire Celery task — returns instantly, worker runs in background
+    task = process_ticket.delay(
+        ticket_id=ticket["id"],
+        ticket_number=ticket["ticket_number"],
+        category=ticket["category"],
+        priority=ticket["priority"],
+    )
+
     return TicketResponse(
         ticket_number=ticket["ticket_number"],
         title=ticket["title"],
@@ -183,7 +196,8 @@ def create_ticket(body: CreateTicketRequest):
         sla_due_at=str(ticket.get("sla_due_at", "")),
         customer_email=body.customer_email,
         order_number=body.order_number,
-        message=f"Ticket {ticket_number} created successfully.",
+        message=f"Ticket {ticket_number} created. Processing started (task_id={task.id}).",
+        task_id=task.id,
     )
 
 
@@ -201,6 +215,43 @@ def get_ticket(ticket_number: str):
         )
     return ticket
 
+
+@app.get("/ticket/{id}/status", response_model=dict, tags=["Tickets"])
+def get_ticket_id_status(ticket_number: str):
+    """
+    Fetch the status of the ticket by ticket number e.g TKT-2025-001
+    """
+    ticket = db.get_ticket_by_number(ticket_number)
+    if not ticket:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Ticket '{ticket_number}' not found."
+        )
+    
+    from datetime import datetime, timezone
+    now         = datetime.now(timezone.utc)
+    sla_due_at  = ticket.get("sla_due_at")
+    resolved    = ticket["status"] in ("resolved", "closed")
+
+    # Check if SLA is breached
+    sla_breached = False
+    if sla_due_at and not resolved:
+        try:
+            due = datetime.fromisoformat(sla_due_at.replace("Z", "+00:00"))
+            sla_breached = now > due
+        except Exception:
+            pass
+
+    return {
+        "ticket_id":     ticket["id"],
+        "ticket_number": ticket["ticket_number"],
+        "status":        ticket["status"],
+        "priority":      ticket["priority"],
+        "assigned_to":   ticket.get("assigned_to"),
+        "sla_due_at":    sla_due_at,
+        "sla_breached":  sla_breached,
+        "resolved_at":   ticket.get("resolved_at"),
+    }
 
 @app.get("/tickets", response_model=dict, tags=["Tickets"])
 def list_open_tickets(
@@ -234,6 +285,36 @@ def update_ticket_status(ticket_number: str, body: UpdateStatusRequest):
         assigned_to=body.assigned_to,
     )
     return {"message": f"Ticket {ticket_number} updated.", "ticket": updated}
+
+
+@app.get("/task/{task_id}", response_model=dict, tags=["Tasks"])
+def get_task_status(task_id: str):
+    """
+    Poll the status of a background Celery task.
+
+    States:
+        PENDING   → task queued, not yet picked up by worker
+        STARTED   → worker is actively processing
+        SUCCESS   → task completed — result contains agent response
+        FAILURE   → task failed — result contains error message
+    """
+    task = celery_app.AsyncResult(task_id)
+
+    response = {
+        "task_id": task_id,
+        "status":  task.status,
+        "result":  None,
+        "error":   None,
+    }
+
+    if task.status == "SUCCESS":
+        response["result"] = task.result
+    elif task.status == "FAILURE":
+        response["error"] = str(task.result)
+    elif task.status == "STARTED":
+        response["result"] = task.info   # partial progress info
+
+    return response
 
 
 # ─────────────────────────────────────────────
