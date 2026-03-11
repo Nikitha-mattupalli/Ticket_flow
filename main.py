@@ -33,6 +33,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), "db"))
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from db_client import TicketflowDB
@@ -40,7 +41,7 @@ from tasks import process_ticket, celery_app
 from mocks.zendesk import router as zendesk_mock_router
 from mocks.shipstation import router as shipstation_mock_router
 from mocks.jira import router as jira_mock_router
-from mocks.status_page import router as status_page_mock_router
+from mocks.status_page import router as statuspage_mock_router
 
 # ─────────────────────────────────────────────
 # App instance
@@ -52,12 +53,27 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# ─────────────────────────────────────────────
+# CORS Middleware
+# ─────────────────────────────────────────────
+# Allows browsers (React, Next.js, etc.) to call this API.
+# In production: replace ["*"] with your actual frontend URL.
+#   e.g. ["https://app.ticketflow.com"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],       # dev: allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],       # allow GET, POST, PUT, DELETE, OPTIONS
+    allow_headers=["*"],       # allow Authorization, Content-Type, etc.
+)
+
 # Mount mock Zendesk router (development only)
 # Remove or guard with ENV check in production
 app.include_router(zendesk_mock_router)
 app.include_router(shipstation_mock_router)
 app.include_router(jira_mock_router)
-app.include_router(status_page_mock_router)
+app.include_router(statuspage_mock_router)
 
 # Single shared DB instance
 db = TicketflowDB()
