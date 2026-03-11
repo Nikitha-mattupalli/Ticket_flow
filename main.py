@@ -44,7 +44,7 @@ from tasks import process_ticket, celery_app
 from mocks.zendesk import router as zendesk_mock_router
 from mocks.shipstation import router as shipstation_mock_router
 from mocks.jira import router as jira_mock_router
-from mocks.statuspage import router as statuspage_mock_router
+from mocks.status_page import router as statuspage_mock_router
 
 # ─────────────────────────────────────────────
 # App instance
