@@ -40,6 +40,7 @@ from tasks import process_ticket, celery_app
 from mocks.zendesk import router as zendesk_mock_router
 from mocks.shipstation import router as shipstation_mock_router
 from mocks.jira import router as jira_mock_router
+from mocks.status_page import router as status_page_mock_router
 
 # ─────────────────────────────────────────────
 # App instance
@@ -56,6 +57,7 @@ app = FastAPI(
 app.include_router(zendesk_mock_router)
 app.include_router(shipstation_mock_router)
 app.include_router(jira_mock_router)
+app.include_router(status_page_mock_router)
 
 # Single shared DB instance
 db = TicketflowDB()
