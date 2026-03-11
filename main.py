@@ -32,7 +32,10 @@ import os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "db"))
 
-from fastapi import FastAPI, HTTPException, status
+import time
+import uuid
+import logging
+from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
@@ -41,7 +44,7 @@ from tasks import process_ticket, celery_app
 from mocks.zendesk import router as zendesk_mock_router
 from mocks.shipstation import router as shipstation_mock_router
 from mocks.jira import router as jira_mock_router
-from mocks.status_page import router as statuspage_mock_router
+from mocks.statuspage import router as statuspage_mock_router
 
 # ─────────────────────────────────────────────
 # App instance
@@ -67,6 +70,48 @@ app.add_middleware(
     allow_methods=["*"],       # allow GET, POST, PUT, DELETE, OPTIONS
     allow_headers=["*"],       # allow Authorization, Content-Type, etc.
 )
+
+# ─────────────────────────────────────────────
+# Request Logging Middleware
+# ─────────────────────────────────────────────
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("ticketflow")
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """
+    Log every request and response with timing.
+
+    Output format:
+        2025-03-07 14:23:01  INFO  → POST /ticket
+        2025-03-07 14:23:01  INFO  ← 202  POST /ticket  [143ms] req_id=a3f2b1c4
+    """
+    req_id    = str(uuid.uuid4())[:8]
+    method    = request.method
+    path      = request.url.path
+    client_ip = request.client.host if request.client else "unknown"
+
+    logger.info(f"→ {method} {path}  client={client_ip}  req_id={req_id}")
+
+    start    = time.perf_counter()
+    response = await call_next(request)
+    duration = (time.perf_counter() - start) * 1000   # ms
+
+    status_code = response.status_code
+    level       = logging.WARNING if status_code >= 400 else logging.INFO
+    logger.log(
+        level,
+        f"← {status_code}  {method} {path}  [{duration:.1f}ms]  req_id={req_id}"
+    )
+
+    # Attach req_id to response headers — useful for debugging
+    response.headers["X-Request-ID"] = req_id
+    return response
 
 # Mount mock Zendesk router (development only)
 # Remove or guard with ENV check in production
