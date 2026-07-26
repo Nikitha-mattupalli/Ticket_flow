@@ -9,6 +9,7 @@ import os
 from agents.supervisor.schema import SupervisorDecision
 from agents.supervisor.prompt import supervisor_prompt
 from graph.state import  Ticket
+from config.settings import GROQ_MODEL
 
 
 load_dotenv()
@@ -21,7 +22,7 @@ class SupervisorAgent:
 
     def __init__(self):
         llm = ChatGroq(
-            model="qwen/qwen3-32b",
+            model=GROQ_MODEL,
             temperature = 0,
             max_retries=2
         )

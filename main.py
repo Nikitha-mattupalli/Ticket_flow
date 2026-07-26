@@ -440,48 +440,111 @@
 #     import uvicorn
 #     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
+# from datetime import datetime
+
+# from graph.state import (
+#     Ticket,
+#     GraphState,
+#     WorkflowStatus,
+# )
+# from graph.workflow import graph
+# from retrieval.retriever import KnowledgeRetriever
+
+# def create_sample_ticket() -> Ticket:
+#     """
+#     Create a sample ticket for testing.
+#     """
+
+#     return Ticket(
+#         ticket_id="TKT-001",
+#         customer_id="CUST-123",
+#         subject="Internet bill is incorrect",
+#         description=(
+#             "I was charged twice this month. "
+#             "Please help me understand why."
+#         ),
+#         created_at=datetime.now(),
+#     )
+
+
+# def main():
+
+#     # Create sample ticket
+#     ticket = create_sample_ticket()
+
+#     # Initialize Graph State
+#     initial_state = GraphState(
+#         ticket=ticket,
+#         )
+
+#     # Execute LangGraph workflow
+#     result = graph.invoke(initial_state)
+#     final_state = GraphState.model_validate(result)
+
+#     # Display results
+#     print("=" * 60)
+#     print("WORKFLOW COMPLETED")
+#     print("=" * 60)
+
+#     print("\nTicket")
+#     print(final_state.ticket)
+
+#     print("\nWorkflow Status")
+#     print(final_state.workflow_status)
+
+#     print("\nSupervisor Decision")
+#     print(final_state.supervisor_decision)
+
+#     retriever = KnowledgeRetriever(
+#         domain="billing",
+#         top_k=3,
+#     )
+
+#     context = retriever.retrieve(ticket)
+
+#     print(context)            
+
+
+# if __name__ == "__main__":
+#     main()
+
+
+
 from datetime import datetime
 
-from graph.state import (
-    Ticket,
-    GraphState,
-    WorkflowStatus,
-)
+from graph.state import Ticket, GraphState
 from graph.workflow import graph
 
 
 def create_sample_ticket() -> Ticket:
-    """
-    Create a sample ticket for testing.
-    """
-
     return Ticket(
-        ticket_id="TKT-001",
-        customer_id="CUST-123",
-        subject="Internet bill is incorrect",
+        ticket_id="TKT-002",
+        customer_id="c8e2ce9e-1224-493b-bb8e-860ce64cadbc",
+        subject="Duplicate payment refund",
         description=(
-            "I was charged twice this month. "
-            "Please help me understand why."
+            "I was charged twice for the same invoice. "
+            "Please verify the payments and refund the duplicate charge."
         ),
         created_at=datetime.now(),
     )
 
 
-def main():
-
-    # Create sample ticket
+def main() -> None:
+    # Create sample input
     ticket = create_sample_ticket()
 
-    # Initialize Graph State
+    # Initialize graph state
     initial_state = GraphState(
         ticket=ticket,
-        )
+    )
 
-    # Execute LangGraph workflow
+    # Run the complete LangGraph workflow
     result = graph.invoke(initial_state)
+
+    # LangGraph returns a dictionary, so validate it back
+    # into the Pydantic GraphState model.
     final_state = GraphState.model_validate(result)
 
-    # Display results
     print("=" * 60)
     print("WORKFLOW COMPLETED")
     print("=" * 60)
@@ -495,7 +558,13 @@ def main():
     print("\nSupervisor Decision")
     print(final_state.supervisor_decision)
 
+    print("\nBilling Result")
+    print(final_state.billing_result)
+
+    if final_state.error_message:
+        print("\nWorkflow Error")
+        print(final_state.error_message)
+
 
 if __name__ == "__main__":
     main()
-

@@ -1,6 +1,6 @@
 -- ============================================================
 -- Ticketflow DB Schema
--- Tables: customers, orders, tickets
+-- Tables: customers, orders, tickets, invoices, payments, refunds
 -- Run this in Supabase SQL Editor (supabase.com → SQL Editor)
 -- ============================================================
 

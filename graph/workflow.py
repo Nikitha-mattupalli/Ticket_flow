@@ -4,9 +4,7 @@ from graph.state import GraphState
 from graph.node import supervisor_node
 from graph.routing import route_ticket
 from langgraph.graph import START, END, StateGraph
-
-def billing_node(state: GraphState) -> GraphState:
-    return state
+from agents.billing.node import billing_node
 
 def technical_node(state: GraphState) -> GraphState:
     return state
@@ -35,9 +33,10 @@ workflow.add_conditional_edges(
     },   
 )
 
-workflow.add_edge("billing", END)
+
 workflow.add_edge("technical", END) 
 workflow.add_edge("returns", END)
 workflow.add_edge("escalation", END)
+workflow.add_edge("billing", END)
 
 graph = workflow.compile()

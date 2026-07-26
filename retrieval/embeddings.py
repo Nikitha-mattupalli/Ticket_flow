@@ -1,5 +1,5 @@
 from langchain_huggingface import HuggingFaceEmbeddings
-from agents.config.settings import EMBEDDING_MODEL
+from config.settings import EMBEDDING_MODEL 
 
 def get_embedding_model() -> HuggingFaceEmbeddings:
     """

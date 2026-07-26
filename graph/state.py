@@ -9,6 +9,7 @@ from enum import Enum
 from datetime import datetime
 
 from agents.supervisor.schema import SupervisorDecision
+from agents.billing.schema import BillingResult
 
 class Ticket(BaseModel):
     ticket_id: str = Field(..., description="Unique identifier for the ticket")
@@ -27,12 +28,16 @@ class WorkflowStatus(str, Enum):
     FAILED = "failed"
 
 class GraphState(BaseModel):
-
     ticket: Ticket
 
     supervisor_decision: SupervisorDecision | None = Field(
         default=None,
-        description="Decision made by the supervisor agent"
+        description="Decision made by the supervisor agent",
+    )
+
+    billing_result: BillingResult | None = Field(
+        default=None,
+        description="Result from the billing agent",
     )
 
     workflow_status: WorkflowStatus = WorkflowStatus.NEW
@@ -40,12 +45,12 @@ class GraphState(BaseModel):
     retry_count: int = Field(
         default=0,
         ge=0,
-        description="Number of retry attempts"
+        description="Number of retry attempts",
     )
 
     error_message: str | None = Field(
         default=None,
-        description="Error message if the workflow fails"
+        description="Error message if the workflow fails",
     )
 
 

@@ -155,6 +155,70 @@ class TicketflowDB:
         return res.data[0]
 
 
+
+    # _________________________________________
+    # INVOICES
+    # _________________________________________
+
+    def get_latest_invoice_for_customer(
+            self,
+            customer_id: str,
+    ) -> Optional[dict]:
+
+        """
+        Fetch the most recent issues invoice for a customer.
+        Args:
+            customer_id: supabase customer UUID
+        Returns:
+            Latest invoice disctionary    
+        """
+
+        response = (
+            self.client
+            .table("invoices")
+            .select("*")
+            .eq("customer_id", customer_id)
+            .order("issued_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        invoices = response.data
+
+        return invoices[0] if invoices else None
+
+    def get_payments_for_invoice(
+        self,
+        invoice_id: str,
+    ) -> list[dict]:
+        response = (
+            self.client
+            .table("payments")
+            .select("*")
+            .eq("invoice_id", invoice_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        return response.data
+
+    def create_refund_record(
+        self,
+        refund_data: dict,
+    ) -> dict:
+        response = (
+            self.client
+            .table("refunds")
+            .insert(refund_data)
+            .execute()
+        )
+
+        return response.data[0]
+
+
+    
+
+
     # ─────────────────────────────────────────
     # TICKETS
     # ─────────────────────────────────────────
