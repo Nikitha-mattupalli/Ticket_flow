@@ -510,60 +510,226 @@
 
 
 
-from datetime import datetime
+# from datetime import datetime
 
-from graph.state import Ticket, GraphState
-from graph.workflow import graph
+# from graph.state import Ticket, GraphState
+# from graph.workflow import graph
 
 
-def create_sample_ticket() -> Ticket:
-    return Ticket(
-        ticket_id="TKT-002",
+# def create_sample_ticket() -> Ticket:
+#     return Ticket(
+#         ticket_id="TKT-002",
+#         customer_id="c8e2ce9e-1224-493b-bb8e-860ce64cadbc",
+#         subject="Duplicate payment refund",
+#         description=(
+#             "I was charged twice for the same invoice. "
+#             "Please verify the payments and refund the duplicate charge."
+#         ),
+#         created_at=datetime.now(),
+#     )
+
+
+# def main() -> None:
+#     # Create sample input
+#     ticket = create_sample_ticket()
+
+#     # Initialize graph state
+#     initial_state = GraphState(
+#         ticket=ticket,
+#     )
+
+#     # Run the complete LangGraph workflow
+#     result = graph.invoke(initial_state)
+
+#     # LangGraph returns a dictionary, so validate it back
+#     # into the Pydantic GraphState model.
+#     final_state = GraphState.model_validate(result)
+
+#     print("=" * 60)
+#     print("WORKFLOW COMPLETED")
+#     print("=" * 60)
+
+#     print("\nTicket")
+#     print(final_state.ticket)
+
+#     print("\nWorkflow Status")
+#     print(final_state.workflow_status)
+
+#     print("\nSupervisor Decision")
+#     print(final_state.supervisor_decision)
+
+#     print("\nBilling Result")
+#     print(final_state.billing_result)
+
+#     if final_state.error_message:
+#         print("\nWorkflow Error")
+#         print(final_state.error_message)
+
+
+# if __name__ == "__main__":
+#     main()
+
+from pprint import pprint
+from uuid import uuid4
+
+from langgraph.types import Command
+
+from graph.state import GraphState, Ticket, WorkflowStatus
+from graph.workflow import build_workflow
+
+
+def print_interrupt(result: dict) -> bool:
+    """
+    Print any interrupt payload returned by LangGraph.
+
+    Returns:
+        True when the graph is currently interrupted.
+        False when no interrupt is present.
+    """
+
+    interrupts = result.get("__interrupt__")
+
+    if not interrupts:
+        return False
+
+    print("\n" + "=" * 60)
+    print("HUMAN APPROVAL REQUIRED")
+    print("=" * 60)
+
+    for interrupt_item in interrupts:
+        pprint(interrupt_item.value)
+
+    print("=" * 60)
+
+    return True
+
+
+def get_human_decision() -> dict:
+    """
+    Collect a structured approval decision from the terminal.
+    """
+
+    while True:
+        answer = input(
+            "\nApprove this refund? [y/n]: "
+        ).strip().lower()
+
+        if answer in {"y", "yes"}:
+            approved = True
+            break
+
+        if answer in {"n", "no"}:
+            approved = False
+            break
+
+        print("Please enter 'y' or 'n'.")
+
+    reviewer = input(
+        "Reviewer name: "
+    ).strip()
+
+    comment = input(
+        "Approval comment: "
+    ).strip()
+
+    return {
+        "approved": approved,
+        "reviewer": reviewer or "unknown",
+        "comment": comment or None,
+    }
+
+
+def create_initial_state() -> GraphState:
+    """
+    Create the initial ticket workflow state.
+
+    Replace the values and Ticket fields with those used by
+    your current Ticket model.
+    """
+
+    ticket = Ticket(
+        ticket_id=str(uuid4()),
         customer_id="c8e2ce9e-1224-493b-bb8e-860ce64cadbc",
-        subject="Duplicate payment refund",
+        subject="Duplicate card charge",
         description=(
             "I was charged twice for the same invoice. "
-            "Please verify the payments and refund the duplicate charge."
+            "Please refund the duplicate payment."
         ),
-        created_at=datetime.now(),
+        created_at="2026-07-29T06:00:00+05:30",
+    )
+
+    return GraphState(
+        ticket=ticket,
+        workflow_status=WorkflowStatus.NEW,
+        retry_count=0,
     )
 
 
 def main() -> None:
-    # Create sample input
-    ticket = create_sample_ticket()
+    graph = build_workflow()
 
-    # Initialize graph state
-    initial_state = GraphState(
-        ticket=ticket,
+    initial_state = create_initial_state()
+
+    # The thread ID identifies this specific resumable workflow.
+    # In a real system, the ticket ID is a good thread ID.
+    thread_id = f"ticket-{initial_state.ticket.ticket_id}"
+
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+        }
+    }
+
+    print("\nStarting billing workflow...")
+    print(f"Thread ID: {thread_id}")
+
+    # ---------------------------------------------------------
+    # First invocation
+    # ---------------------------------------------------------
+
+    result = graph.invoke(
+        initial_state,
+        config=config,
     )
 
-    # Run the complete LangGraph workflow
-    result = graph.invoke(initial_state)
+    # ---------------------------------------------------------
+    # Check whether the graph paused
+    # ---------------------------------------------------------
 
-    # LangGraph returns a dictionary, so validate it back
-    # into the Pydantic GraphState model.
-    final_state = GraphState.model_validate(result)
+    if not print_interrupt(result):
+        print("\nWorkflow completed without requiring approval.")
+        pprint(result)
+        return
 
+    # ---------------------------------------------------------
+    # Collect reviewer decision
+    # ---------------------------------------------------------
+
+    decision = get_human_decision()
+
+    print("\nResuming workflow with decision:")
+    pprint(decision)
+
+    # ---------------------------------------------------------
+    # Resume the same graph thread
+    # ---------------------------------------------------------
+
+    resumed_result = graph.invoke(
+        Command(resume=decision),
+        config=config,
+    )
+
+    print("\n" + "=" * 60)
+    print("WORKFLOW RESUMED")
     print("=" * 60)
-    print("WORKFLOW COMPLETED")
-    print("=" * 60)
 
-    print("\nTicket")
-    print(final_state.ticket)
+    pprint(resumed_result)
 
-    print("\nWorkflow Status")
-    print(final_state.workflow_status)
+    print("\nFinal approval status:")
+    print(resumed_result.get("approval_status"))
 
-    print("\nSupervisor Decision")
-    print(final_state.supervisor_decision)
-
-    print("\nBilling Result")
-    print(final_state.billing_result)
-
-    if final_state.error_message:
-        print("\nWorkflow Error")
-        print(final_state.error_message)
+    print("\nFinal workflow status:")
+    print(resumed_result.get("workflow_status"))
 
 
 if __name__ == "__main__":

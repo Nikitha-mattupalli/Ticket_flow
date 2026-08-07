@@ -1,7 +1,6 @@
-#how the schema of the result of billing agent shiuld look like
-
 from enum import Enum
-from pydantic import BaseModel, Field, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BillingIssueCategory(str, Enum):
@@ -14,7 +13,8 @@ class BillingIssueCategory(str, Enum):
     INVOICE_REQUEST = "invoice_request"
     SUBSCRIPTION = "subscription"
     BILL_EXPLANATION = "bill_explanation"
-    OTHER = "other" 
+    OTHER = "other"
+
 
 class ResolutionStatus(str, Enum):
     RESOLVED = "resolved"
@@ -22,16 +22,115 @@ class ResolutionStatus(str, Enum):
     ESCALATED = "escalated"
     ACTION_REQUIRED = "action_required"
 
-class BillingResult(BaseModel):
+
+class ApprovalStatus(str, Enum):
+    NOT_REQUIRED = "not_required"
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class RefundReason(str, Enum):
+    DUPLICATE = "duplicate"
+    FRAUDULENT = "fraudulent"
+    REQUESTED_BY_CUSTOMER = "requested_by_customer"
+    BILLING_ERROR = "billing_error"
+    SERVICE_ISSUE = "service_issue"
+
+
+class RefundRequest(BaseModel):
     """
-    Schema for the result of billing agent
+    Refund action proposed by the Billing Agent.
     """
+
     model_config = ConfigDict(extra="forbid")
 
-    issue_category: BillingIssueCategory = Field(..., description="The category of the billing issue")
-    resolution_status: ResolutionStatus = Field(..., description="The resolution status for the billing issue")
-    confidence: float = Field(ge=0,le=1, description="The confidence score of the resolution provided, between 0 and 1")
-    requires_human: bool = Field(..., description="Indicates whether the billing issue requires human intervention (yes/no)")
-    response_to_customer: str = Field(..., description="The response to be sent to the customer regarding the billing issue")
-    reasoning: str = Field(..., description="The reasoning behind the resolution provided for the billing issue")
+    payment_id: str = Field(
+        ...,
+        description="Internal Supabase payment UUID.",
+    )
 
+    invoice_id: str = Field(
+        ...,
+        description="Internal Supabase invoice UUID.",
+    )
+
+    customer_id: str = Field(
+        ...,
+        description="Internal Supabase customer UUID.",
+    )
+
+    payment_intent_id: str = Field(
+        ...,
+        pattern=r"^pi_",
+        description="Stripe PaymentIntent ID beginning with pi_.",
+    )
+
+    amount: int = Field(
+        ...,
+        gt=0,
+        description=(
+            "Refund amount in the smallest currency unit, "
+            "such as paise or cents."
+        ),
+    )
+
+    currency: str = Field(
+        ...,
+        min_length=3,
+        max_length=3,
+        description="Three-letter currency code such as INR or USD.",
+    )
+
+    reason: RefundReason = Field(
+        ...,
+        description="Reason for the proposed refund.",
+    )
+
+
+class BillingResult(BaseModel):
+    """
+    Structured decision returned by the Billing Agent.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    issue_category: BillingIssueCategory = Field(
+        ...,
+        description="Category of the identified billing issue.",
+    )
+
+    resolution_status: ResolutionStatus = Field(
+        ...,
+        description="Current resolution status of the billing issue.",
+    )
+
+    confidence: float = Field(
+        ...,
+        ge=0,
+        le=1,
+        description="Confidence in the Billing Agent's decision.",
+    )
+
+    requires_human: bool = Field(
+        ...,
+        description="Whether human intervention is required.",
+    )
+
+    response_to_customer: str = Field(
+        ...,
+        description="Proposed customer-facing response.",
+    )
+
+    reasoning: str = Field(
+        ...,
+        description="Concise explanation of the billing decision.",
+    )
+
+    proposed_refund: RefundRequest | None = Field(
+        default=None,
+        description=(
+            "Refund proposed by the Billing Agent. "
+            "None when no refund should be performed."
+        ),
+    )

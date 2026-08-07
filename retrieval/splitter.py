@@ -24,12 +24,7 @@ def split_documents(documents: list[Document]) -> list[Document]:
 
     return chunks 
 
-documents = [Document(page_content = "Hello "* 300)]    
-chunks = split_documents(documents)
-print(f"Number of chunks: {len(chunks)}")
-
-for i, chunk in enumerate(chunks):
-    print(f"Chunk {i+1}")
-    print(f"Length: {len(chunk.page_content)}")
-    print(chunk.page_content[:60])
-    print("-" * 50)
+if __name__ == "__main__":
+    documents = [Document(page_content="Hello " * 300)]
+    chunks = split_documents(documents)
+    print(f"Number of chunks: {len(chunks)}")

@@ -1,136 +1,171 @@
-# TICKET FLOW Agent Customer Support System
+# Ticket Flow
 
-> A production-grade, multi-agent AI system that autonomously handles
-> customer support tickets end-to-end using LangGraph, Groq, and a
-> fully free-tier tech stack.
+Ticket Flow is a portfolio-ready multi-agent customer-support workflow built
+with LangGraph, LangChain, Groq, Pydantic, Chroma, Supabase, Stripe test mode,
+and Resend.
 
-![Status](https://img.shields.io/badge/status-in--development-yellow)
-![Python](https://img.shields.io/badge/python-3.11-blue)
-![LangGraph](https://img.shields.io/badge/LangGraph-latest-purple)
+The demo-ready v1 focuses on two complete specialist paths:
 
----
+- Billing: RAG and payment investigation, typed refund proposal, optional
+  human approval, Stripe execution, and customer confirmation.
+- Technical: RAG-grounded classification and troubleshooting.
 
-## What It Does
-
-DispatchAI replaces rigid support chatbots with a coordinated team of
-autonomous AI agents. Each ticket is classified, routed, and resolved
-by a specialist agent — with full observability, human-in-the-loop
-controls, and zero paid LLM costs.
-
----
+Returns and escalation are explicit terminal placeholders for later versions.
 
 ## Architecture
-```
+
+```text
 Incoming Ticket
-      ↓
-Supervisor Agent (classify → sentiment → priority → route)
-      ↓
-┌─────────────────────────────────────────┐
-│  Billing   │  Technical  │  Returns  │  Escalation  │
-│  Agent     │  Agent(RAG) │  Agent    │  Agent       │
-└─────────────────────────────────────────┘
-      ↓
-Human-in-the-Loop (interrupt on high-stakes decisions)
-      ↓
-Resolution + LangSmith Trace
+      |
+      v
+Supervisor (classify, prioritize, summarize, route)
+      |
+      +-- billing --> Billing RAG + read-only investigation
+      |                    |
+      |                    +-- no refund ----------------------> END
+      |                    |
+      |                    +-- approval required --> INTERRUPT
+      |                    |                           |
+      |                    |                 reject --> END
+      |                    |                 approve --+
+      |                    |
+      |                    +-- no approval required ---+
+      |                                                |
+      |                                                v
+      |                                      Stripe refund execution
+      |                                                |
+      |                                      success --> confirmation --> END
+      |                                      failure ------------------> END
+      |
+      +-- technical --> Technical RAG --> TechnicalResult --> END
+      +-- returns --------------------------------------------> END (stub)
+      +-- escalation -----------------------------------------> END (stub)
 ```
 
----
+See [docs/architecture.md](docs/architecture.md) for node responsibilities and
+state ownership.
 
-## Agent Roles
+## Design highlights
 
-| Agent | Responsibility | Tools |
-|-------|---------------|-------|
-| Supervisor | Classify, sentiment score, route | Groq LLM |
-| Billing | Invoices, refunds, confirmations | Supabase, Stripe, Resend |
-| Technical | Diagnose issues, KB search | ChromaDB RAG, Jira mock |
-| Returns | Eligibility, labels, store credit | Supabase, ShipStation mock |
-| Escalation | Summarise, alert, escalate | Slack, Zendesk mock |
+- The Supervisor routes tickets but never resolves them.
+- Billing uses two LLM stages: a tool-calling investigation followed by a
+  separate structured-output formatter. This avoids Groq tool/response-format
+  conflicts.
+- Stripe is never called before a required `interrupt()` completes.
+- Workflow execution data lives in `GraphState`; `BillingResult` contains only
+  the agent's decision and proposed action.
+- Refund execution uses a stable Stripe idempotency key.
+- Billing and Technical agents share the generic Chroma retrieval package.
+- The graph is compiled with `InMemorySaver` and resumed with the same
+  `thread_id`.
 
----
+## Requirements
 
-## Tech Stack (100% Free Tier)
+- Python 3.11 or 3.12 recommended
+- A Groq API key for live agent calls
+- Supabase, Stripe test-mode, and Resend credentials for live Billing execution
 
-| Layer | Technology |
-|-------|-----------|
-| LLM | Groq (Llama 3.1) |
-| Agent Framework | LangGraph + LangChain |
-| Observability | LangSmith |
-| API | FastAPI + Celery |
-| Vector DB | ChromaDB |
-| Session Memory | Upstash Redis |
-| Database | Supabase (PostgreSQL) |
-| Email | Resend |
-| Payments | Stripe test mode |
-| Alerts | Slack API |
-| Deployment | Railway + Docker |
-| UI | Streamlit |
+Python 3.14 currently produces a LangChain/Pydantic compatibility warning.
 
----
+## Setup
 
-## Project Structure
-```
-DispatchAI/
-├── agents/       # Supervisor + 4 specialist agents
-├── tools/        # All LangChain tool definitions
-├── memory/       # Redis session + ChromaDB vector store
-├── api/          # FastAPI routes + Celery tasks
-├── workflows/    # LangGraph state graph
-├── tests/        # Pytest test suite
-├── docs/         # Architecture diagrams
-└── docker/       # Docker + docker-compose
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
----
+Fill in `.env`. Keep `STRIPE_SECRET_KEY` in test mode (`sk_test_...`).
 
-## Getting Started
+Build or rebuild the knowledge indexes:
 
-### Prerequisites
-- Python 3.11
-- Docker Desktop
-
-### Installation
-```bash
-git clone https://github.com/yourusername/dispatchai.git
-cd dispatchai
-python -m venv ticket_flow
-ticket_flow\Scripts\activate       # Windows
-pip install -r requirements.txt
-cp .env.example .env               # Fill in your API keys
+```powershell
+python -c "from retrieval.index_builder import build_index; build_index('billing')"
+python -c "from retrieval.index_builder import build_index; build_index('technical')"
 ```
 
-### Run Locally
-```bash
-# coming soon — Phase 5
+If the embedding model is already cached and the machine is offline:
+
+```powershell
+$env:HF_HUB_OFFLINE='1'
 ```
 
----
+## Safe deterministic demo
 
-## Roadmap
+This runs the real compiled LangGraph and its HITL interrupt/resume behavior,
+while mocking Groq, Supabase, Stripe, and Resend. It creates no external side
+effects.
 
-- [x] Phase 0 — Environment & Foundations
-- [ ] Phase 1 — Core Infrastructure
-- [ ] Phase 2 — Supervisor Agent
-- [ ] Phase 3 — Specialist Agents
-- [ ] Phase 4 — Human-in-the-Loop
-- [ ] Phase 5 — Observability & Deployment
-- [ ] Phase 6 — Frontend & Polish
+```powershell
+python scripts/demo_workflow.py --scenario all
+```
 
----
+Individual scenarios:
 
-![My SVG Icon](./ticketflow_diagram.svg)
+```powershell
+python scripts/demo_workflow.py --scenario approval
+python scripts/demo_workflow.py --scenario rejection
+python scripts/demo_workflow.py --scenario no_approval
+python scripts/demo_workflow.py --scenario technical
+```
 
+## Interactive live Billing demo
 
-## Demo
+After configuring test credentials and verifying the sample IDs in `main.py`:
 
-> Coming in Week 15 — Streamlit dashboard + screen recording
+```powershell
+python main.py
+```
 
----
+The initial invocation pauses for high-value refunds. The terminal collects the
+reviewer's decision and resumes the same graph thread. This path can create a
+Stripe test refund and send a real email through Resend.
 
-## Author
+## Tests
 
-Built by [Your Name] as a portfolio project demonstrating
-production-grade agentic AI engineering.
+The focused suite uses `unittest`, so it does not require pytest:
 
-- LinkedIn: your-linkedin
-- GitHub: your-github
+```powershell
+$env:HF_HUB_OFFLINE='1'
+python -m unittest `
+  tests.test_billing_workflow `
+  tests.test_technical_agent `
+  tests.test_demo_workflow -v
+```
+
+The older `tests/test_integration.py` exercises the separate FastAPI/Celery/
+Supabase pipeline and requires those services to be running. It is not part of
+the focused LangGraph v1 test command above.
+
+## Repository map
+
+```text
+agents/
+  supervisor/       routing decision
+  billing/          investigation, schemas, approval, execution
+  technical/        typed RAG-grounded troubleshooting
+graph/              state, nodes, routing, workflow assembly
+retrieval/          shared embeddings, splitting, Chroma retrieval
+knowledge/          billing and technical Markdown sources
+tools/              Supabase, Stripe, and Resend tools
+scripts/            deterministic demo and data helpers
+tests/              focused workflow and legacy integration tests
+docs/               architecture notes
+```
+
+## Current v1 status
+
+- [x] Supervisor routing
+- [x] Two-stage Billing Agent
+- [x] Billing RAG and verified invoice/payment lookup
+- [x] Refund proposal and typed workflow state
+- [x] HITL approval/rejection with checkpointing
+- [x] Approved and no-approval refund execution routes
+- [x] Confirmation and failure routes
+- [x] Technical Agent with RAG and `TechnicalResult`
+- [x] Deterministic four-scenario graph demo
+- [x] Focused offline tests
+- [ ] Persistent production checkpointer
+- [ ] Implemented Returns and Escalation agents
+- [ ] Deployment/UI polish

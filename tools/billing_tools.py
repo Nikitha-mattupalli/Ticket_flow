@@ -1,4 +1,4 @@
-from uuid import UUID, uuid4
+from uuid import UUID
 from langchain_core.tools import tool
 from db.db_client import TicketflowDB
 import os
@@ -8,7 +8,15 @@ from dotenv import load_dotenv
 import resend
 
 load_dotenv()
-db = TicketflowDB()
+_db: TicketflowDB | None = None
+
+
+def get_db() -> TicketflowDB:
+    """Create the Supabase client only when a billing operation needs it."""
+    global _db
+    if _db is None:
+        _db = TicketflowDB()
+    return _db
 
 @tool
 def fetch_invoice(customer_id: str) -> dict:
@@ -23,6 +31,7 @@ def fetch_invoice(customer_id: str) -> dict:
         # Validate UUID before querying Supabase
         UUID(customer_id)
 
+        db = get_db()
         invoice = db.get_latest_invoice_for_customer(customer_id)
 
         if invoice is None:
@@ -65,6 +74,7 @@ def process_refund(
     payment_intent_id: str,
     amount: int,
     reason: str = "requested_by_customer",
+    human_approved: bool = False,
 ) -> dict:
     """
     Process a Stripe refund in test mode.
@@ -109,7 +119,7 @@ def process_refund(
             "error": "Invalid refund reason.",
         }
 
-    if amount > REFUND_APPROVAL_THRESHOLD:
+    if amount > REFUND_APPROVAL_THRESHOLD and not human_approved:
         return {
             "success": False,
             "approval_required": True,
@@ -127,7 +137,7 @@ def process_refund(
             metadata={
                 "source": "ticketflow_billing_agent",
             },
-            idempotency_key=str(uuid4()),
+            idempotency_key=f"ticketflow-{payment_intent_id}-{amount}",
         )
 
         return {
