@@ -26,6 +26,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "db"))
 import requests
 from celery import Celery
 from db_client import TicketflowDB
+from graph.state import Ticket
+from services.workflow_service import start_workflow
+from config.settings import settings
 
 # Swap this URL for real Zendesk in production:
 # ZENDESK_BASE_URL = 'https://{subdomain}.zendesk.com/api/v2'
@@ -39,8 +42,8 @@ ZENDESK_BASE_URL = os.environ.get(
 
 celery_app = Celery(
     "ticketflow",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/0",
+    broker=settings.redis_url,
+    backend=settings.redis_url,
 )
 
 celery_app.conf.update(
@@ -52,6 +55,20 @@ celery_app.conf.update(
     task_acks_late=True,          # only ack after task completes (safer)
     task_reject_on_worker_lost=True,  # re-queue if worker dies mid-task
 )
+
+
+@celery_app.task(
+    bind=True,
+    name="tasks.process_langgraph_workflow",
+    autoretry_for=(ConnectionError, TimeoutError),
+    retry_backoff=True,
+    retry_jitter=True,
+    max_retries=3,
+)
+def process_langgraph_workflow(self, ticket_data: dict) -> dict:
+    """Run the same Ticket Flow graph used by the API and CLI."""
+    ticket = Ticket.model_validate(ticket_data)
+    return start_workflow(ticket)
 
 
 # ─────────────────────────────────────────────

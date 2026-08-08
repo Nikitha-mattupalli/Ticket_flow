@@ -30,6 +30,16 @@ class DemoWorkflowTests(unittest.TestCase):
         self.assertIsNotNone(result["technical_result"])
         self.assertEqual(result["workflow_status"], WorkflowStatus.COMPLETED)
 
+    def test_returns_ticket_returns_policy_result(self):
+        result = run_scenario("returns")
+        self.assertIsNotNone(result["returns_result"])
+        self.assertEqual(result["workflow_status"], WorkflowStatus.COMPLETED)
+
+    def test_escalation_waits_for_human(self):
+        result = run_scenario("escalation")
+        self.assertIsNotNone(result["escalation_result"])
+        self.assertEqual(result["workflow_status"], WorkflowStatus.WAITING_FOR_HUMAN)
+
 
 if __name__ == "__main__":
     unittest.main()

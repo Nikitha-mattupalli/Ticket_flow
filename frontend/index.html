@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ticket Flow</title>
+  <style>
+    body { font-family: system-ui; max-width: 760px; margin: 3rem auto; padding: 0 1rem; background:#f6f7fb; color:#172033; }
+    form, pre { background:white; padding:1.25rem; border-radius:12px; box-shadow:0 4px 18px #0001; }
+    label { display:block; margin:.8rem 0 .25rem; font-weight:600; }
+    input, textarea, button { box-sizing:border-box; width:100%; padding:.7rem; }
+    textarea { min-height:120px; } button { margin-top:1rem; cursor:pointer; background:#315efb; color:white; border:0; border-radius:8px; }
+    pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+  </style>
+</head>
+<body>
+  <h1>Ticket Flow</h1>
+  <p>Submit a ticket to the LangGraph support workflow.</p>
+  <form id="ticket-form">
+    <label>Customer ID</label><input id="customer" required>
+    <label>Subject</label><input id="subject" required minlength="3">
+    <label>Description</label><textarea id="description" required minlength="3"></textarea>
+    <button>Submit ticket</button>
+  </form>
+  <h2>Workflow response</h2><pre id="output">No ticket submitted.</pre>
+  <form id="approval-form" hidden>
+    <label>Reviewer</label><input id="reviewer" value="demo-reviewer">
+    <label>Comment</label><input id="comment">
+    <button type="button" data-approved="true">Approve refund</button>
+    <button type="button" data-approved="false">Reject refund</button>
+  </form>
+  <script>
+    let activeThread = null;
+    document.querySelector('#ticket-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const output = document.querySelector('#output'); output.textContent = 'Running...';
+      const response = await fetch('http://localhost:8000/workflows', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({customer_id:customer.value, subject:subject.value, description:description.value})});
+      const data = await response.json(); activeThread = data.thread_id;
+      output.textContent = JSON.stringify(data, null, 2);
+      document.querySelector('#approval-form').hidden = !data.interrupted;
+    });
+    document.querySelectorAll('#approval-form button').forEach((button) => button.addEventListener('click', async () => {
+      const response = await fetch(`http://localhost:8000/workflows/${activeThread}/approval`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({approved:button.dataset.approved === 'true', reviewer:reviewer.value, comment:comment.value || null})});
+      const data = await response.json(); output.textContent = JSON.stringify(data, null, 2);
+      document.querySelector('#approval-form').hidden = true;
+    }));
+  </script>
+</body>
+</html>

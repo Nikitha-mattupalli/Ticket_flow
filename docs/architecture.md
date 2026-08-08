@@ -10,6 +10,8 @@
 | Refund execution node | Stripe tool invocation and result | Agent reasoning |
 | Confirmation node | Customer notification result | Refund authorization |
 | Technical Agent | Grounded `TechnicalResult` | External system changes |
+| Returns Agent | Policy-grounded `ReturnsResult` | Warehouse or carrier changes |
+| Escalation Agent | Typed human handoff | Resolution by the human queue |
 
 ## Billing sequence
 
@@ -75,11 +77,21 @@ Ticket -> technical Chroma retrieval -> structured Groq call -> TechnicalResult
 Supported categories are login issues, password reset, network connectivity,
 service outage, API timeout, and other. The agent has no mutating tools.
 
-## Production follow-ups
+## Runtime and persistence
 
-- Replace `InMemorySaver` with a persistent checkpointer.
-- Configure strict/allowlisted LangGraph checkpoint serialization for custom
-  Pydantic and enum types.
-- Store refund and approval lifecycle records in Supabase.
-- Add observability, retry policy, and dead-letter handling.
-- Implement Returns and Escalation specialists.
+- `CHECKPOINTER_BACKEND=memory` is intended for tests and local demos.
+- `CHECKPOINTER_BACKEND=sqlite` persists resumable graph state at
+  `CHECKPOINT_DB_PATH`.
+- Checkpoint deserialization allowlists the project's typed state/schema
+  modules.
+- `PERSIST_REFUNDS=true` writes refund proposal, approval, processing, success,
+  failure, and cancellation states to Supabase.
+- `DELIVER_ESCALATIONS=true` sends escalation handoffs to the configured
+  Zendesk-compatible endpoint.
+
+## Further production follow-ups
+
+- Use a managed Postgres/Redis checkpointer for horizontally scaled workers.
+- Add authentication and tenant-aware API authorization.
+- Add dead-letter queue monitoring and alerting.
+- Run load, security, and disaster-recovery tests before production traffic.

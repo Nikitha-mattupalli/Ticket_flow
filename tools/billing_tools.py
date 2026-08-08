@@ -67,6 +67,7 @@ def fetch_invoice(customer_id: str) -> dict:
         }
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+stripe.max_network_retries = 2
 REFUND_APPROVAL_THRESHOLD = 50_000
 
 @tool

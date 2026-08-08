@@ -74,10 +74,20 @@ CREATE INDEX IF NOT EXISTS idx_payments_status
 CREATE INDEX IF NOT EXISTS idx_payments_payment_intent
     ON payments(stripe_payment_intent_id);
 
-CREATE TRIGGER trg_payments_updated_at
-    BEFORE UPDATE ON payments
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'trg_payments_updated_at'
+          AND tgrelid = 'payments'::regclass
+    ) THEN
+        CREATE TRIGGER trg_payments_updated_at
+            BEFORE UPDATE ON payments
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at();
+    END IF;
+END $$;
 
 
 -- DOWN ↓

@@ -1,0 +1,40 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file: ../.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CHECKPOINTER_BACKEND: sqlite
+      CHECKPOINT_DB_PATH: /app/data/checkpoints.sqlite
+    ports:
+      - "8000:8000"
+    volumes:
+      - checkpoint_data:/app/data
+    depends_on:
+      - redis
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: celery -A tasks worker --loglevel=info --pool=solo
+    env_file: ../.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CHECKPOINTER_BACKEND: sqlite
+      CHECKPOINT_DB_PATH: /app/data/checkpoints.sqlite
+    volumes:
+      - checkpoint_data:/app/data
+    depends_on:
+      - redis
+
+volumes:
+  checkpoint_data:

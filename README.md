@@ -4,13 +4,13 @@ Ticket Flow is a portfolio-ready multi-agent customer-support workflow built
 with LangGraph, LangChain, Groq, Pydantic, Chroma, Supabase, Stripe test mode,
 and Resend.
 
-The demo-ready v1 focuses on two complete specialist paths:
+The workflow now includes four specialist paths:
 
 - Billing: RAG and payment investigation, typed refund proposal, optional
   human approval, Stripe execution, and customer confirmation.
 - Technical: RAG-grounded classification and troubleshooting.
-
-Returns and escalation are explicit terminal placeholders for later versions.
+- Returns: policy-grounded eligibility guidance and next steps.
+- Escalation: typed human handoff with optional Zendesk delivery.
 
 ## Architecture
 
@@ -38,8 +38,8 @@ Supervisor (classify, prioritize, summarize, route)
       |                                      failure ------------------> END
       |
       +-- technical --> Technical RAG --> TechnicalResult --> END
-      +-- returns --------------------------------------------> END (stub)
-      +-- escalation -----------------------------------------> END (stub)
+      +-- returns --> Returns RAG --> ReturnsResult ----------> END
+      +-- escalation --> EscalationResult --> human queue ----> END
 ```
 
 See [docs/architecture.md](docs/architecture.md) for node responsibilities and
@@ -108,6 +108,37 @@ python scripts/demo_workflow.py --scenario approval
 python scripts/demo_workflow.py --scenario rejection
 python scripts/demo_workflow.py --scenario no_approval
 python scripts/demo_workflow.py --scenario technical
+python scripts/demo_workflow.py --scenario returns
+python scripts/demo_workflow.py --scenario escalation
+```
+
+## API and worker
+
+Run the synchronous/resumable API:
+
+```powershell
+uvicorn api.app:app --reload
+```
+
+Key endpoints:
+
+- `GET /health`
+- `POST /workflows`
+- `POST /workflows/{thread_id}/approval`
+- `POST /workflows/async`
+- `GET /tasks/{task_id}`
+
+For background execution, start Redis and a Celery worker:
+
+```powershell
+celery -A tasks worker --loglevel=info --pool=solo
+```
+
+The minimal browser client is [frontend/index.html](frontend/index.html).
+For the container stack:
+
+```powershell
+docker compose -f docker/docker-compose.yml up --build
 ```
 
 ## Interactive live Billing demo
@@ -166,6 +197,12 @@ docs/               architecture notes
 - [x] Technical Agent with RAG and `TechnicalResult`
 - [x] Deterministic four-scenario graph demo
 - [x] Focused offline tests
-- [ ] Persistent production checkpointer
-- [ ] Implemented Returns and Escalation agents
-- [ ] Deployment/UI polish
+- [x] Configurable persistent SQLite checkpointer
+- [x] Returns and Escalation agents
+- [x] Refund lifecycle persistence hooks
+- [x] LangGraph-native FastAPI and Celery entry points
+- [x] Structured logging and LangSmith environment configuration
+- [x] Docker Compose and minimal browser UI
+
+Live Supabase migrations and external-service acceptance tests remain operator
+steps because they require project credentials and can create external records.

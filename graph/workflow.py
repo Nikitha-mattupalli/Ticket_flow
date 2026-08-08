@@ -1,4 +1,3 @@
-from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from agents.billing.approval_node import refund_approval_node
@@ -7,6 +6,8 @@ from agents.billing.execution_nodes import (
     refund_execution_node,
 )
 from agents.technical.node import technical_node
+from agents.returns.node import returns_node
+from agents.escalation.node import escalation_node
 from graph.node import billing_node, supervisor_node
 from graph.routing import (
     route_after_approval,
@@ -15,9 +16,10 @@ from graph.routing import (
     route_ticket,
 )
 from graph.state import GraphState
+from graph.checkpointing import create_checkpointer
 
 
-def build_workflow():
+def build_workflow(checkpointer=None):
     """
     Build and compile the Ticket Flow LangGraph.
 
@@ -42,6 +44,8 @@ def build_workflow():
     )
 
     workflow.add_node("technical", technical_node)
+    workflow.add_node("returns", returns_node)
+    workflow.add_node("escalation", escalation_node)
 
     workflow.add_node(
         "refund_approval",
@@ -71,8 +75,8 @@ def build_workflow():
             "billing": "billing",
 
             "technical": "technical",
-            "returns": END,
-            "escalation": END,
+            "returns": "returns",
+            "escalation": "escalation",
         },
     )
 
@@ -91,6 +95,8 @@ def build_workflow():
     )
 
     workflow.add_edge("technical", END)
+    workflow.add_edge("returns", END)
+    workflow.add_edge("escalation", END)
 
     workflow.add_conditional_edges(
         "refund_approval",
@@ -116,7 +122,7 @@ def build_workflow():
     # Checkpointer
     # ---------------------------------------------------------
 
-    checkpointer = InMemorySaver()
+    checkpointer = checkpointer or create_checkpointer()
 
     graph = workflow.compile(
         checkpointer=checkpointer,

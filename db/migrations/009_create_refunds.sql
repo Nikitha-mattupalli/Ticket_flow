@@ -92,10 +92,20 @@ CREATE INDEX IF NOT EXISTS idx_refunds_status
 CREATE INDEX IF NOT EXISTS idx_refunds_approval_required
     ON refunds(approval_required);
 
-CREATE TRIGGER trg_refunds_updated_at
-    BEFORE UPDATE ON refunds
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'trg_refunds_updated_at'
+          AND tgrelid = 'refunds'::regclass
+    ) THEN
+        CREATE TRIGGER trg_refunds_updated_at
+            BEFORE UPDATE ON refunds
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at();
+    END IF;
+END $$;
 
 
 -- DOWN ↓

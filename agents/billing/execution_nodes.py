@@ -1,6 +1,7 @@
 from agents.billing.schema import ApprovalStatus
 from graph.state import GraphState, WorkflowStatus
 from tools.billing_tools import get_db, process_refund, send_confirmation
+from config.settings import settings
 
 
 def refund_execution_node(state: GraphState) -> dict:
@@ -21,6 +22,12 @@ def refund_execution_node(state: GraphState) -> dict:
         if reason in {"duplicate", "fraudulent", "requested_by_customer"}
         else "requested_by_customer"
     )
+    if settings.persist_refunds and state.refund_record_id:
+        get_db().update_refund_record(
+            state.refund_record_id,
+            {"status": "processing"},
+        )
+
     result = process_refund.invoke(
         {
             "payment_intent_id": refund.payment_intent_id,
@@ -31,12 +38,25 @@ def refund_execution_node(state: GraphState) -> dict:
     )
 
     if result.get("success"):
+        if settings.persist_refunds and state.refund_record_id:
+            get_db().update_refund_record(
+                state.refund_record_id,
+                {
+                    "status": "succeeded",
+                    "stripe_refund_id": result.get("refund_id"),
+                },
+            )
         return {
             "refund_result": result,
             "workflow_status": WorkflowStatus.PROCESSING,
             "error_message": None,
         }
 
+    if settings.persist_refunds and state.refund_record_id:
+        get_db().update_refund_record(
+            state.refund_record_id,
+            {"status": "failed"},
+        )
     return {
         "refund_result": result,
         "workflow_status": WorkflowStatus.FAILED,

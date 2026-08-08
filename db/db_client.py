@@ -215,6 +215,19 @@ class TicketflowDB:
 
         return response.data[0]
 
+    def update_refund_record(self, refund_id: str, updates: dict) -> dict:
+        """Update approval or execution fields for a refund lifecycle row."""
+        response = (
+            self.client
+            .table("refunds")
+            .update(updates)
+            .eq("id", refund_id)
+            .execute()
+        )
+        if not response.data:
+            raise ValueError(f"Refund record not found: {refund_id}")
+        return response.data[0]
+
 
     
 

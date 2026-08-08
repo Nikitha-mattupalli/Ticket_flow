@@ -11,6 +11,8 @@ from datetime import datetime
 from agents.supervisor.schema import SupervisorDecision
 from agents.billing.schema import BillingResult, ApprovalStatus, RefundRequest
 from agents.technical.schema import TechnicalResult
+from agents.returns.schema import ReturnsResult
+from agents.escalation.schema import EscalationResult
 
 
 class Ticket(BaseModel):
@@ -69,10 +71,19 @@ class GraphState(BaseModel):
         description="Result returned by the refund execution tool.",
     )
 
+    refund_record_id: str | None = Field(
+        default=None,
+        description="Supabase refund lifecycle record UUID when persistence is enabled.",
+    )
+
     technical_result: TechnicalResult | None = Field(
         default=None,
         description="Grounded troubleshooting produced by the Technical Agent.",
     )
+
+    returns_result: ReturnsResult | None = None
+    escalation_result: EscalationResult | None = None
+    escalation_delivery_result: dict | None = None
 
     confirmation_result: dict | None = Field(
         default=None,

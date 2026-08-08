@@ -5,6 +5,8 @@ from graph.state import GraphState, WorkflowStatus
 from retrieval.retriever import KnowledgeRetriever
 from agents.billing.agent import BillingAgent
 from agents.billing.schema import ApprovalStatus, BillingResult
+from config.settings import settings
+from tools.billing_tools import get_db
 
 billing_agent = BillingAgent()
 billing_retriever = KnowledgeRetriever(domain="billing", top_k=3)
@@ -56,6 +58,27 @@ def billing_node(state: GraphState) -> GraphState:
         else:
             state.approval_status = ApprovalStatus.NOT_REQUIRED
             state.workflow_status = WorkflowStatus.PROCESSING
+
+        if settings.persist_refunds:
+            refund = billing_result.proposed_refund
+            record = get_db().create_refund_record(
+                {
+                    "payment_id": refund.payment_id,
+                    "invoice_id": refund.invoice_id,
+                    "customer_id": refund.customer_id,
+                    "amount": refund.amount / 100,
+                    "amount_minor": refund.amount,
+                    "currency": refund.currency.upper(),
+                    "reason": refund.reason.value,
+                    "status": (
+                        "approval_required"
+                        if billing_result.requires_human
+                        else "pending"
+                    ),
+                    "approval_required": billing_result.requires_human,
+                }
+            )
+            state.refund_record_id = record["id"]
 
     else:
 

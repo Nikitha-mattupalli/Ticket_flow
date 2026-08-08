@@ -3,6 +3,9 @@ from langgraph.types import interrupt
 from agents.billing.schema import ApprovalStatus
 from graph.state import GraphState
 from graph.state import WorkflowStatus
+from config.settings import settings
+from tools.billing_tools import get_db
+from datetime import datetime, timezone
 
 
 def refund_approval_node(state: GraphState) -> GraphState:
@@ -43,14 +46,23 @@ def refund_approval_node(state: GraphState) -> GraphState:
             "Approval decision must contain an 'approved' boolean."
         )
 
+    approval_status = (
+        ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
+    )
+    if settings.persist_refunds and state.refund_record_id:
+        get_db().update_refund_record(
+            state.refund_record_id,
+            {
+                "status": "pending" if approved else "cancelled",
+                "approved_by": decision.get("reviewer"),
+                "approved_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
     return {
         "approval_reviewer": decision.get("reviewer"),
         "approval_comment": decision.get("comment"),
-        "approval_status": (
-            ApprovalStatus.APPROVED
-            if approved
-            else ApprovalStatus.REJECTED
-        ),
+        "approval_status": approval_status,
         "workflow_status": (
             WorkflowStatus.PROCESSING
             if approved
